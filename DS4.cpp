@@ -12,16 +12,29 @@ struct Orders {
     Orders *next;
 };
 
+class Clock {
+    public:
+        int clk;
+        Clock() {
+            clk = 0;
+        }
+};
+
 class order_system {
     private:
+        Clock clock;
+        Queue main_queue; // 共同queue
         int chef_num;
-        Queue *queues;
+        int which_chef; //現在要哪個廚師
+        Queue *queues; //每個廚一個queue
         Chef *chefs;
     public:
         order_system(int num) {
-            num = chef_num;
+            chef_num =num;
+            which_chef = 0;
             queues = nullptr;
             chefs = nullptr;
+            Queue main_queue;
         }
         void BuildSystem() {
             queues = new Queue[chef_num];
@@ -31,6 +44,75 @@ class order_system {
         ~order_system() {
             delete[] queues;
             delete[] chefs;
+        }
+
+        bool OnlyOneChefFree() {
+            which_chef = 0;
+            int count = 0;
+            while (which_chef < chef_num) {
+                if(chefs[which_chef].IsFree()) {
+                    count++;
+                }
+                which_chef++;
+            }
+            if (count == 1) {
+                return true;
+            }
+            return false;
+        }
+
+
+        bool AllocateOrders() {
+            which_chef = 0;
+            Order o = main_queue.GetHeadOrder();
+            if (OnlyOneChefFree()) {
+                queues[which_chef].push(o);
+                main_queue.pop();
+                return true;
+            }
+            while (which_chef < chef_num) {
+                if (chefs[which_chef].IsFree()) {
+                    queues[which_chef].push(o);
+                    main_queue.pop();
+                    return true;
+                }
+                which_chef++;
+            }
+            which_chef = 0;
+            while (which_chef < chef_num) {
+                if (!queues[which_chef].QueueFull()) {
+                    queues[which_chef].push(o);
+                    main_queue.pop();
+                    return true;
+                } else {
+                    which_chef++;
+                }
+            }
+            return false;
+        }
+
+        void AddOrder() {
+            while (main_queue.GetHeadOrder().arrival == clock.clk) {
+                bool success = AllocateOrders();
+
+                if (!success) {
+                    break;
+                }
+                if (main_queue.IsEmpty()) {
+                    break;
+                }
+            }
+        }
+
+        void Simulate() {
+            while (true) {
+                clock.clk++;
+                if (!main_queue.IsEmpty()) {
+                    AddOrder();
+                }
+
+
+            }
         }
 };
 
@@ -64,16 +146,47 @@ class Queue{
                 return;
             }
             Orders* temp = head;
-            if (head -> next == nullptr) {
-                delete temp;
+            delete temp;
+            if (head == nullptr) {
                 orders = nullptr;
-                head = nullptr;
                 tail = nullptr;
-                return;
             }  else {
                 head = head -> next;
-                delete temp;
             }
+            return;
+        }
+
+        Orders* GetHead() {
+            return head;
+        }
+
+        Order GetHeadOrder() {
+            return head -> order;
+        }
+
+        int GetLength() {
+            Orders *cur = head;
+            int len = 0;
+            while (cur != nullptr) {
+                len++;
+                cur = cur -> next;
+            }
+            return len;
+        }
+
+        bool QueueFull() {
+            if (GetLength() == 3) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        bool IsEmpty() {
+            if (head == nullptr) {
+                return true;
+            }
+            return false;
         }
 };
 class Chef {
@@ -82,6 +195,12 @@ class Chef {
     public:
         Chef() {
             now = {0, 0, 0, 0};
+        }
+        bool IsFree() {
+            if (now.oid = 0) {
+                return true;
+            }
+            return false;
         }
 
 };
