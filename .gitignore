@@ -1,3 +1,4 @@
 .vscode/
 .vscode
-.txt
+*.txt
+*.out
