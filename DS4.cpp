@@ -299,8 +299,8 @@ class order_system {
         }
 
         void SetAbort(const Order& o, int num) { //第二種情況
-            //閒置時刻為結束時刻
-            AbortList a = {o.oid, num+1, chefs[num].GetFreeTime(), chefs[num].GetFreeTime()-o.arrival};
+            //閒置時刻為結束時刻 == 現在時間
+            AbortList a = {o.oid, num+1, clock.clk, clock.clk-o.arrival};
             abort_list.push_back(a);
             queues[num].pop();
         }
@@ -309,7 +309,7 @@ class order_system {
             int finish_time = chefs[num].GetFinishtime();
             int start_time = chefs[num].GetStartTime();
             Order o = chefs[num].GetOrder();
-            if (finish_time >= clock.clk) {
+            if (finish_time == clock.clk) {
                 if (IsTimeout(o, finish_time)) {
                     int delay = start_time - o.arrival;
                     TimeoutList t = {o.oid, num+1 , delay, finish_time};
