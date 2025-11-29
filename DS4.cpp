@@ -116,11 +116,11 @@ class Chef {
 
         int GetFreeTime() { return free_time; }
 
-        void DoThisOrder(int n_oid, int n_arrival, int duration, int timeout, int clk) {
-            now.oid = n_oid;
-            now.arrival = n_arrival;
-            now.duration = duration;
-            now.timeout = timeout;
+        void DoThisOrder(const Order& o, int clk) {
+            now.oid = o.oid;
+            now.arrival = o.arrival;
+            now.duration = o.duration;
+            now.timeout = o.timeout;
             free_time = clk + now.duration;
             start_time = clk;
         }
@@ -135,6 +135,9 @@ class Chef {
 
         int GetStartTime() {
             return start_time;
+        }
+        int FreeTime() {
+            return free_time;
         }
 
         Order GetOrder() {
@@ -246,54 +249,102 @@ class order_system {
 
 
         bool AllocateOrders() {
+
+            if (main_orders.empty()) return false;
+            int bestlen = 10000;
+            int bestidx = -1;
             Order o = main_orders[0];
 
             for (int i = 0; i < chef_num; i++) {
-                if (chefs[i].IsFree()) {
-                    chefs[i].DoThisOrder(o.oid, o.arrival, o.duration, o.timeout, clock.clk);
+                if (chefs[i].IsFree() && queues[i].IsEmpty()) {
+                    chefs[i].DoThisOrder(o, clock.clk);
                     main_orders.erase(main_orders.begin());
                     return true;
                 }
             }
             for (int i = 0; i < chef_num; i++) {
-                if (!queues[i].QueueFull()) {
-                    queues[i].push(o);
-                    main_orders.erase(main_orders.begin());
-                    return true;
+                if (queues[i].GetLength() < bestlen && !queues[i].QueueFull()) {
+                    bestidx = i;
+                    bestlen = queues[i].GetLength();
                 }
+            }
+            if (bestidx != -1) {
+                queues[bestidx].push(o);
+                main_orders.erase(main_orders.begin());
+                return true;
             }
             return false;
         }
 
         void AddOrder() {
-            while (main_orders[0].arrival == clock.clk || !main_orders.empty()) {
+            while (!main_orders.empty() && main_orders[0].arrival == clock.clk) {
                 bool success = AllocateOrders();
-
                 if (!success) {
-                    break;
+                    SetAbort();
                 }
             }
         }
 
-        bool IsTimeout(int finish, int num) {
-            if (finish > chefs[num].GetTimeOut()) {
+        bool IsTimeout(const Order &o, int finish_time) {
+            if (finish_time > o.timeout) {
                 return true;
             }
             return false;
+        }
+
+        void SetAbort() { //第一種情況
+            AbortList a = {main_orders[0].oid, 0, main_orders[0].arrival, 0};
+            abort_list.push_back(a);
+            main_orders.erase(main_orders.begin());
+        }
+
+        void SetAbort(const Order& o, int num) { //第二種情況
+            //閒置時刻為結束時刻
+            AbortList a = {o.oid, num+1, chefs[num].GetFreeTime(), chefs[num].GetFreeTime()-o.arrival};
+            abort_list.push_back(a);
+            queues[num].pop();
         }
 
         void CheckFinish(int num) {
             int finish_time = chefs[num].GetFinishtime();
             int start_time = chefs[num].GetStartTime();
             Order o = chefs[num].GetOrder();
-            if (finish_time == clock.clk) {
-                if (IsTimeout(finish_time, num)) {
+            if (finish_time >= clock.clk) {
+                if (IsTimeout(o, finish_time)) {
                     int delay = start_time - o.arrival;
                     TimeoutList t = {o.oid, num+1 , delay, finish_time};
                     timeout_list.push_back(t);
-                    chefs[num].SetFree();
+                }
+                chefs[num].SetFree();
+            }
+        }
+
+        void GetNextOrder(int num) {
+            Order o;
+            while (!queues[num].IsEmpty()) {
+                o = queues[num].GetHeadOrder();
+                if (o.timeout < chefs[num].GetFreeTime()) {
+                    SetAbort(o, num);
+                } else {
+                    chefs[num].DoThisOrder(o, clock.clk);
+                    queues[num].pop();
+                    break;
                 }
             }
+        }
+
+        bool AllQueuesEmpty() {
+            for (int i = 0; i < chef_num; ++i) {
+                if (!queues[i].IsEmpty()) return false;
+            }
+            return true;
+        }
+
+        bool AllChefsFree() {
+            for (int i = 0; i < chef_num; ++i) {
+                if (!chefs[i].IsFree()) return false;
+            }
+            return true;
         }
 
 
@@ -306,16 +357,23 @@ class order_system {
             size_t idx = 0;
             int total_orders = main_orders.size();
             while (true) {
+
                 clock.Tick();
 
                 for (int i = 0; i < chef_num; i++) {
                     if (!chefs[i].IsFree()) {
                         CheckFinish(i);
                     }
+                    if (chefs[i].IsFree()) {
+                        GetNextOrder(i);
+                    }
                 }
-
                 if (!main_orders.empty()) {
                     AddOrder();
+                }
+
+                if (main_orders.empty() && AllQueuesEmpty() && AllChefsFree()) {
+                    break;
                 }
 
 
