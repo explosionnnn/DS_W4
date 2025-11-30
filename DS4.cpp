@@ -294,9 +294,6 @@ class order_system {
             main_orders = orders;
         }
 
-
-
-
         bool AllocateOrders() {
 
             if (main_orders.empty()) return false;
@@ -400,10 +397,8 @@ class order_system {
             Order temp;
             for (int gap = n/2; gap > 0; gap /=2) {
                 for (int i = gap; i < n; i++) {
-
                     temp.oid = target[i].oid;
                     int j = i;
-
                     while (j-gap >= 0 && target[j-gap].oid > temp.oid) {
                         target[j] = target[j-gap];
                         j -= gap;
@@ -412,7 +407,6 @@ class order_system {
                 }
             }
         }
-
 
         void SimulateQueues(int N) {
             std::string prefix;
