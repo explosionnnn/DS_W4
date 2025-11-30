@@ -1,9 +1,0 @@
-	[Abort List]
-	OID	CID	Delay	Abort
-[1]	108	1	13	19
-[2]	104	2	15	26
-	[Timeout List]
-	OID	CID	Delay	Departure
-[1]	103	1	6	19
-[2]	106	2	5	20
-[3]	105	2	10	26

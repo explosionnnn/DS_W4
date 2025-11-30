@@ -1,4 +1,0 @@
-	[Total Delay]
-19 min.
-[Failure Percentage]
-42.86 %
