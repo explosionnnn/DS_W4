@@ -192,7 +192,7 @@ public:
             return false;
         }
         std::string header;
-        std::getline(infile, header); 
+        std::getline(infile, header);
         std::vector<Order> tmp;
         int oid, arrival, duration, timeout;
         while(infile >> oid >> arrival >> duration >> timeout) {
@@ -294,6 +294,26 @@ class order_system {
             main_orders = orders;
         }
 
+        void ShellSort(int n, std::vector<Order> target) {
+            Order temp;
+            for (int gap = n/2; gap > 0; gap /=2) {
+                for (int i = gap; i < n; i++) {
+
+                    temp.oid = target[i].oid;
+                    int j = i;
+
+                    while (j-gap >= 0 && target[j-gap].oid > temp.oid) {
+                        target[j] = target[j-gap];
+                        j -= gap;
+                    }
+                    target[j] = temp;
+                }
+            }
+        }
+
+
+
+
         bool AllocateOrders() {
 
             if (main_orders.empty()) return false;
@@ -339,14 +359,14 @@ class order_system {
         }
 
         void SetAbort() { //第一種情況
-            AbortList a = {main_orders[0].oid, 0, main_orders[0].arrival, 0};
+            AbortList a = {main_orders[0].oid, 0, 0, main_orders[0].arrival};
             abort_list.push_back(a);
             main_orders.erase(main_orders.begin());
         }
 
         void SetAbort(const Order& o, int num) { //第二種情況
             //閒置時刻為結束時刻 == 現在時間
-            AbortList a = {o.oid, num+1, clock.clk, clock.clk-o.arrival};
+            AbortList a = {o.oid, num+1, clock.clk-o.arrival, clock.clk};
             abort_list.push_back(a);
             queues[num].pop();
         }
@@ -369,7 +389,7 @@ class order_system {
             Order o;
             while (!queues[num].IsEmpty()) {
                 o = queues[num].GetHeadOrder();
-                if (o.timeout < chefs[num].GetFreeTime()) {
+                if (o.timeout < clock.clk) {
                     SetAbort(o, num);
                 } else {
                     chefs[num].DoThisOrder(o, clock.clk);
@@ -393,20 +413,8 @@ class order_system {
             return true;
         }
 
-        void ShellSort(int n, std::vector<Order> target) {
-            Order temp;
-            for (int gap = n/2; gap > 0; gap /=2) {
-                for (int i = gap; i < n; i++) {
-                    temp.oid = target[i].oid;
-                    int j = i;
-                    while (j-gap >= 0 && target[j-gap].oid > temp.oid) {
-                        target[j] = target[j-gap];
-                        j -= gap;
-                    }
-                    target[j] = temp;
-                }
-            }
-        }
+
+
 
         void SimulateQueues(int N) {
             std::string prefix;
@@ -428,9 +436,10 @@ class order_system {
                         GetNextOrder(i);
                     }
                 }
-                if (!main_orders.empty()) {
+                if (!main_orders.empty() && main_orders[0].arrival == clock.clk) {
                     AddOrder();
                 }
+
 
                 if (main_orders.empty() && AllQueuesEmpty() && AllChefsFree()) {
                     break;
@@ -458,10 +467,10 @@ class order_system {
 
 // ----------------- MAIN -----------------
 int main() {
-    Order* dyn_orders = nullptr; 
+    Order* dyn_orders = nullptr;
     int dyn_count = 0;
-    bool has_sorted_file = false; 
-    bool task2_done = false; 
+    bool has_sorted_file = false;
+    bool task2_done = false;
     int last_file_number = 0;
     while(true) {
         std::cout << "*** (^_^) Data Structure (^o^) ***\n";
@@ -506,7 +515,7 @@ int main() {
             auto t3 = std::chrono::high_resolution_clock::now();
             IOHandler::WriteSortedListToFile(orders, file_number);
             auto t4 = std::chrono::high_resolution_clock::now();
-            long long read_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count(); 
+            long long read_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
             long long sort_us = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
             long long write_us = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
             std::cout << "\nReading data: " << read_us << " us.\n\n";
@@ -573,7 +582,7 @@ int main() {
                 std::cout << "\nInput the number of queues: ";
                 std::getline(std::cin, s);
                 try {
-                    N = std::stoi(s);     
+                    N = std::stoi(s);
                     if (N > 0) break;
                 } catch (std::invalid_argument &e) {
                     continue;
