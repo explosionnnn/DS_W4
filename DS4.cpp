@@ -455,10 +455,10 @@ class order_system {
 
             double failure_percentage = (abort_list.size()+timeout_list.size())*100.0/total_orders;
 
-            IOHandler::WriteAbortListToFile(abort_list,401,prefix);
-            IOHandler::WriteTimeoutListToFile(timeout_list,401,prefix);
+            IOHandler::WriteAbortListToFile(abort_list,file_number,prefix);
+            IOHandler::WriteTimeoutListToFile(timeout_list,file_number,prefix);
             std::ofstream outfile(prefix + std::to_string(file_number) + ".txt", std::ios::app);
-            outfile << "\t[Total Delay]\n";
+            outfile << "[Total Delay]\n";
             outfile << total_delay << " min.\n";
             outfile << "[Failure Percentage]\n";
             outfile << std::fixed << std::setprecision(2) << failure_percentage << " %\n";
