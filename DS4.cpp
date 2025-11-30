@@ -7,7 +7,11 @@
 #include <chrono>
 #include <sys/stat.h> // for stat
 #include <cmath>
+#include <limits>
+#include <climits>
+#include <algorithm>
 
+// ----------------- STRUCTS -----------------
 struct Order {
     int oid;
     int arrival;
@@ -35,6 +39,13 @@ struct AbortList {
 };
 
 struct TimeoutList {
+    int oid;
+    int cid;
+    int delay;
+    int departure;
+};
+
+struct DoneList {
     int oid;
     int cid;
     int delay;
@@ -99,11 +110,11 @@ class Queue {
         }
     };
 
-
+// ----------------- CHEF -----------------
 class Chef {
     private:
-        int free_time; 
-        int start_time; 
+        int free_time; //訂單結束時間
+        int start_time; //訂單開始時間
         Order now;
     public:
         Chef() { free_time = 0; now = {0, 0, 0, 0}; start_time = 0;}
@@ -158,6 +169,7 @@ class Chef {
         void SetFree() { free_time = 0; now = {0, 0, 0, 0}; start_time = 0;}
 };
 
+// ----------------- CLOCK -----------------
 class Clock {
 public:
     int clk;
@@ -176,12 +188,10 @@ public:
             return orders;
         }
         std::string header;
-        std::getline(infile, header); 
+        std::getline(infile, header); // skip header
         int oid, arrival, duration, timeout;
         while(infile >> oid >> arrival >> duration >> timeout) {
-            if (duration > 0 && arrival + duration <= timeout) {
-                orders.push_back({oid, arrival, duration, timeout});
-            }
+            orders.push_back({oid, arrival, duration, timeout});
         }
         return orders;
     }
@@ -193,13 +203,11 @@ public:
             return false;
         }
         std::string header;
-        std::getline(infile, header); 
+        std::getline(infile, header); // skip header
         std::vector<Order> tmp;
         int oid, arrival, duration, timeout;
         while(infile >> oid >> arrival >> duration >> timeout) {
-            if (duration > 0 && arrival + duration <= timeout) {
-                tmp.push_back({oid, arrival, duration, timeout});
-            }
+            tmp.push_back({oid, arrival, duration, timeout});
         }
         n = (int)tmp.size();
         if (n == 0) {
@@ -230,6 +238,17 @@ public:
             outfile << "[" << i+1 << "]\t" << timeout_list[i].oid << "\t"
                     << timeout_list[i].cid << "\t" << timeout_list[i].delay << "\t"
                     << timeout_list[i].departure << "\n";
+        }
+    }
+
+    static void WriteDoneListToFile(const std::vector<DoneList>& done_list,int file_number,const std::string &prefix) {
+        std::ofstream outfile(prefix + std::to_string(file_number) + ".txt", std::ios::app);
+        outfile << "\t[Done List]\n";
+        outfile << "\tOID\tCID\tDelay\tDeparture\n";
+        for(size_t i=0;i<done_list.size();i++){
+            outfile << "[" << i+1 << "]\t" << done_list[i].oid << "\t"
+                    << done_list[i].cid << "\t" << done_list[i].delay << "\t"
+                    << done_list[i].departure << "\n";
         }
     }
 
@@ -275,6 +294,7 @@ public:
     }
 };
 
+// ----------------- ORDER SYSTEM (修改 SimulateQueues 以逐時刻列印 debug 訊息) -----------------
 class order_system {
     private:
         int chef_num;
@@ -283,9 +303,11 @@ class order_system {
         Clock clock;
         std::vector<AbortList> abort_list;
         std::vector<TimeoutList> timeout_list;
+        std::vector<DoneList> done_list;
         std::vector<Order> main_orders;
         int total_delay;
         int file_number;
+        int total_orders_count;
     public:
         order_system(int num, int file_no): chef_num(num), file_number(file_no) {
             chefs = new Chef[chef_num];
@@ -300,31 +322,17 @@ class order_system {
         }
 
         bool IsTimeout(const Order &o, int finish_time) {
-            if (finish_time > o.timeout) {
-                return true;
-            }
-            return false;
+            return finish_time > o.timeout;
         }
 
-        void SetAbort_FirstCase(const Order& o) { 
+        void SetAbort_FirstCase(const Order& o) { // 第一種：未進入佇列就被取消（CID=0，delay=0，abort=arrival）
             AbortList a = {o.oid, 0, 0, o.arrival};
             abort_list.push_back(a);
         }
 
-        void SetAbort_FromQueue(const Order& o, int num) { 
+        void SetAbort_FromQueue(const Order& o, int num) { // 從佇列取出時發現逾時
             AbortList a = {o.oid, num+1, clock.clk - o.arrival, clock.clk};
             abort_list.push_back(a);
-        }
-
-        void SetAbort(const Order& o, int num, bool from_queue) {
-            if (from_queue) {
-                AbortList a = {o.oid, num+1, clock.clk - o.arrival, clock.clk};
-                abort_list.push_back(a);
-                queues[num].pop();
-            } else {
-                AbortList a = {o.oid, 0, 0, o.arrival};
-                abort_list.push_back(a);
-            }
         }
 
         void CheckFinish(int num) {
@@ -332,10 +340,13 @@ class order_system {
             int start_time = chefs[num].GetStartTime();
             Order o = chefs[num].GetOrder();
             if (finish_time == clock.clk) {
+                int delay = start_time - o.arrival;
                 if (IsTimeout(o, finish_time)) {
-                    int delay = start_time - o.arrival;
                     TimeoutList t = {o.oid, num+1 , delay, finish_time};
                     timeout_list.push_back(t);
+                } else {
+                    DoneList d = {o.oid, num+1, delay, finish_time};
+                    done_list.push_back(d);
                 }
                 chefs[num].SetFree();
             }
@@ -345,6 +356,7 @@ class order_system {
             Order o;
             while (!queues[num].IsEmpty()) {
                 o = queues[num].GetHeadOrder();
+                // 若這筆從佇列取出時已無法在 timeout 前完成 -> 把他 Abort（delay = now - arrival）
                 if (o.timeout < chefs[num].GetFreeTime()) {
                     AbortList a = {o.oid, num+1, clock.clk - o.arrival, clock.clk};
                     abort_list.push_back(a);
@@ -372,6 +384,7 @@ class order_system {
         }
 
         bool AllocateOrdersSQF(const Order &o) {
+            // 精簡版 SQF，盡量與你原本邏輯一致（閒置直接做、否則放最短佇列）
             int idle_cnt = 0;
             int pick_idle_idx = -1;
             for (int i = 0; i < chef_num; ++i) {
@@ -394,7 +407,7 @@ class order_system {
                     return true;
                 }
             }
-            int bestlen = INT32_MAX;
+            int bestlen = std::numeric_limits<int>::max();
             int bestidx = -1;
             for (int i = 0; i < chef_num; ++i) {
                 int len = queues[i].GetLength();
@@ -412,60 +425,148 @@ class order_system {
 
         void SimulateQueues(int N) {
             std::string prefix;
-            if(N==1) prefix="one";
-            else if(N==2) prefix="two";
-            else prefix="any";
+            if (N == 1) prefix = "one";
+            else if (N == 2) prefix = "two";
+            else prefix = "any";
 
             int total_orders = (int)main_orders.size();
 
+            // 確保 main_orders 已按照 arrival, oid 排好
+            std::sort(main_orders.begin(), main_orders.end(), [](const Order &a, const Order &b) {
+                if (a.arrival != b.arrival) return a.arrival < b.arrival;
+                return a.oid < b.oid;
+            });
+
             while (true) {
-                clock.Tick();
-                for (int i = 0; i < chef_num; i++) {
-                    if (!chefs[i].IsFree()) {
-                        CheckFinish(i);
-                    }
-                }
-                for (int i = 0; i < chef_num; i++) {
-                    if (chefs[i].IsFree(clock.clk)) {
-                        GetNextOrder(i);
+                // ----------------------------
+                // Step 1: 處理完成/逾時訂單
+                // ----------------------------
+                for (int i = 0; i < chef_num; ++i) {
+                    if (!chefs[i].IsFree() && chefs[i].GetFinishtime() == clock.clk) {
+                        Order o = chefs[i].GetOrder();
+                        int start_time = chefs[i].GetStartTime();
+                        int finish_time = chefs[i].GetFinishtime();
+                        int delay = start_time - o.arrival;
+
+                        if (finish_time > o.timeout) {
+                            TimeoutList t = { o.oid, i + 1, delay, finish_time };
+                            timeout_list.push_back(t);
+                        } else {
+                            DoneList d = { o.oid, i + 1, delay, finish_time };
+                            done_list.push_back(d);
+                        }
+                        chefs[i].SetFree();
                     }
                 }
 
-                while (!main_orders.empty() && main_orders[0].arrival == clock.clk) {
-                    Order o = main_orders[0];
-                    bool allocated = AllocateOrdersSQF(o);
-                    if (!allocated) {
-                        AbortList a = {o.oid, 0, 0, o.arrival};
-                        abort_list.push_back(a);
+                // ----------------------------
+                // Step 2: arrival (分派新訂單)
+                // ----------------------------
+                while (!main_orders.empty() && main_orders.front().arrival == clock.clk) {
+                    Order o = main_orders.front();
+
+                    std::vector<int> idle_empty;
+                    for (int i = 0; i < chef_num; ++i) {
+                        if (chefs[i].IsFree(clock.clk) && queues[i].IsEmpty()) idle_empty.push_back(i);
+                    }
+
+                    if (!idle_empty.empty()) {
+                        // Case 1 & 2: 閒置廚師，選編號最小
+                        int idx = *std::min_element(idle_empty.begin(), idle_empty.end());
+                        chefs[idx].DoThisOrder(o, clock.clk);
+                    } else {
+                        // Case 3: 最短佇列
+                        int best_len = INT_MAX;
+                        int best_idx = -1;
+                        for (int i = 0; i < chef_num; ++i) {
+                            if (!queues[i].QueueFull()) {
+                                int len = queues[i].GetLength();
+                                if (len < best_len || (len == best_len && i < best_idx)) {
+                                    best_len = len;
+                                    best_idx = i;
+                                }
+                            }
+                        }
+                        if (best_idx != -1) {
+                            queues[best_idx].push(o);
+                        } else {
+                            // Case 4: 所有隊列滿 -> Abort
+                            AbortList a = { o.oid, 0, 0, o.arrival };
+                            abort_list.push_back(a);
+                        }
                     }
                     main_orders.erase(main_orders.begin());
                 }
-                if (main_orders.empty() && AllQueuesEmpty() && AllChefsFree()) {
-                    break;
+
+                // ----------------------------
+                // Step 3: 閒置廚師取隊列訂單（改成全局最短隊列優先）
+                // ----------------------------
+                while (true) {
+                    int best_idx = -1;
+                    int min_len = INT_MAX;
+                    for (int i = 0; i < chef_num; ++i) {
+                        if (!queues[i].IsEmpty() && (chefs[i].IsFree(clock.clk) || chefs[i].FreeTime() <= clock.clk)) {
+                            int len = queues[i].GetLength();
+                            if (len < min_len || (len == min_len && i < best_idx)) {
+                                min_len = len;
+                                best_idx = i;
+                            }
+                        }
+                    }
+                    if (best_idx == -1) break; // 沒有可以處理的隊列
+
+                    Order head = queues[best_idx].GetHeadOrder();
+                    int start_time = std::max(chefs[best_idx].FreeTime(), clock.clk);
+
+                    if (head.timeout < start_time) {
+                        // 超時 -> Abort
+                        AbortList a = { head.oid, best_idx + 1, start_time - head.arrival, start_time };
+                        abort_list.push_back(a);
+                        queues[best_idx].pop();
+                    } else {
+                        chefs[best_idx].DoThisOrder(head, clock.clk);
+                        queues[best_idx].pop();
+                    }
                 }
+
+                // ----------------------------
+                // Step 4: 檢查結束條件
+                // ----------------------------
+                bool allQempty = true;
+                for (int i = 0; i < chef_num; ++i)
+                    if (!queues[i].IsEmpty()) { allQempty = false; break; }
+
+                bool allChefsFree = true;
+                for (int i = 0; i < chef_num; ++i)
+                    if (!chefs[i].IsFree(clock.clk)) { allChefsFree = false; break; }
+
+                if (main_orders.empty() && allQempty && allChefsFree) break;
+
+                clock.Tick();
             }
-            total_delay=0;
-            for(auto &a:abort_list) total_delay+=a.delay;
-            for(auto &t:timeout_list) total_delay+=t.delay;
+
+            // Summary
+            int total_delay = 0;
+            for (auto &a : abort_list) total_delay += a.delay;
+            for (auto &t : timeout_list) total_delay += t.delay;
 
             double failure_percentage = 0.0;
-            if (total_orders > 0) {
+            if (total_orders > 0)
                 failure_percentage = ((double)(abort_list.size() + timeout_list.size())) * 100.0 / total_orders;
-            }
-            IOHandler::WriteAbortListToFile(abort_list,file_number,prefix);
-            IOHandler::WriteTimeoutListToFile(timeout_list,file_number,prefix);
-            IOHandler::WriteSummaryToFile(total_delay,failure_percentage,file_number,prefix);
-            double fp_rounded = std::round(failure_percentage * 100.0) / 100.0;
-            std::cout << "Simulation finished. Output written to " << prefix << file_number << ".txt\n";
-            std::cout << "Total Delay: " << total_delay << " min. Failure %: " << std::fixed << std::setprecision(2) << fp_rounded << " %\n";
+
+            IOHandler::WriteAbortListToFile(abort_list, file_number, prefix);
+            IOHandler::WriteTimeoutListToFile(timeout_list, file_number, prefix);
+            IOHandler::WriteSummaryToFile(total_delay, failure_percentage, file_number, prefix);
         }
+
+
 };
 
+// ----------------- MAIN (保持你的選單與 I/O 邏輯) -----------------
 int main() {
-    Order* dyn_orders = nullptr; 
+    Order* dyn_orders = nullptr;
     int dyn_count = 0;
-    bool has_sorted_file = false; 
-    bool task2_done = false; 
+    bool task2_done = false;
     int last_file_number = 0;
 
     while(true) {
@@ -473,7 +574,7 @@ int main() {
         std::cout << "** Simulate FIFO Queues by SQF ***\n";
         std::cout << "* 0. Quit                        *\n";
         std::cout << "* 1. Sort a file                 *\n";
-        std::cout << "* 2. Simulate one FIFO queue     *\n        ";
+        std::cout << "* 2. Simulate one FIFO queue     *\n";
         std::cout << "* 3. Simulate two queues by SQF  *\n";
         std::cout << "* 4. Simulate some queues by SQF *\n";
         std::cout << "**********************************\n";
@@ -489,27 +590,16 @@ int main() {
             last_file_number = file_number;
             std::vector<Order> orders = IOHandler::ReadOrdersFromFile(file_number);
             if (orders.empty()) {
-                std::cerr << "No orders read from input" << file_number << ".txt or file not found / all invalid.\n";
+                std::cerr << "No orders read from input" << file_number << ".txt or file not found.\n";
                 continue;
             }
             std::cout << "原始 orders:\n";
             for (auto &o : orders) {
                 std::cout << o.oid << "\t" << o.arrival << "\t" << o.duration << "\t" << o.timeout << "\n";
             }
-            auto t0 = std::chrono::high_resolution_clock::now();
-            auto t1 = std::chrono::high_resolution_clock::now();
             IOHandler::ShellSort(orders);
-            auto t2 = std::chrono::high_resolution_clock::now();
             IOHandler::WriteSortedListToFile(orders, file_number);
-            auto t3 = std::chrono::high_resolution_clock::now();
-            long long read_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count(); 
-            long long sort_us = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-            long long write_us = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
             std::cout << "Sorting done and written to sorted" << file_number << ".txt\n";
-            std::cout << "Read time (us): " << read_us << "\n";
-            std::cout << "Sort time (us): " << sort_us << "\n";
-            std::cout << "Write time (us): " << write_us << "\n";
-            has_sorted_file = true;
         }
         else if(choice==2) {
             std::cout << "Enter file number (e.g., 401): ";
