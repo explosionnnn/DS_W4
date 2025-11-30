@@ -196,9 +196,9 @@ public:
         std::vector<Order> tmp;
         int oid, arrival, duration, timeout;
         while(infile >> oid >> arrival >> duration >> timeout) {
-            if (duration > 0 && arrival + duration <= timeout) {
+            // if (duration > 0 && arrival + duration <= timeout) {
                 tmp.push_back({oid, arrival, duration, timeout});
-            }
+            // }
         }
         n = (int)tmp.size();
         if (n == 0) {
@@ -482,8 +482,14 @@ int main() {
         std::cout << "* 4. Simulate some queues by SQF *\n";
         std::cout << "**********************************\n";
         std::cout << "Input a command(0, 1, 2, 3, 4): ";
+        std::string choice_input;
         int choice;
-        if (!(std::cin >> choice)) break;
+        try {
+            std::cin >> choice_input;
+            choice = std::stoi(choice_input);
+        }  catch (std::invalid_argument &e) {
+            break;
+        }
         if(choice==0) break;
         std::string file_input;
         int file_number;
@@ -493,7 +499,7 @@ int main() {
             try {
                 file_number = std::stoi(file_input);
             }   catch (std::invalid_argument &e) {
-                std::cerr << "\n### input" << file_input << ".txt does not exist! ###\n\n";
+                std::cout << "\n### input" << file_input << ".txt does not exist! ###\n\n";
                 continue;
             }
             last_file_number = file_number;
@@ -501,13 +507,13 @@ int main() {
             std::vector<Order> orders = IOHandler::ReadOrdersFromFile(file_number);
             auto t1 = std::chrono::high_resolution_clock::now();
             if (orders.empty()) {
-                std::cerr << "\n### input" << file_number << ".txt does not exist! ###\n\n";
+                std::cout << "\n### input" << file_number << ".txt does not exist! ###\n\n";
                 continue;
             }
             std::cout << "\n\tOID\tArrival\tDuration\tTimeOut\n";
             int index = 1;
             for (auto &o : orders) {
-                std::cout << "(" << index << ")"  << "\t" << o.oid << "\t" << o.arrival << "\t" << o.duration << "\t" << o.timeout << "\n";
+                std::cout << "(" << index << ")"  << " \t" << o.oid << "\t" << o.arrival << "\t" << o.duration << "\t" << o.timeout << "\n";
                 ++index;
             }
             auto t2 = std::chrono::high_resolution_clock::now();
@@ -529,25 +535,25 @@ int main() {
             try {
                 file_number = std::stoi(file_input);
             }   catch (std::invalid_argument &e) {
-                std::cerr << "\n### sorted" << file_input << ".txt does not exist! ###\n\n";
+                std::cout << "\n### sorted" << file_input << ".txt does not exist! ###\n\n";
                 continue;
             }
             std::string sorted_name = "sorted" + std::to_string(file_number) + ".txt";
             if (!IOHandler::Exists(sorted_name)) {
-                std::cerr << "\n### sorted" << file_number << ".txt does not exist! ###\n\n";
+                std::cout << "\n### sorted" << file_number << ".txt does not exist! ###\n\n";
                 continue;
             }
             if (dyn_orders) { delete[] dyn_orders; dyn_orders = nullptr; dyn_count = 0; task2_done = false; }
             bool ok = IOHandler::ReadSortedToDynamic(dyn_orders, dyn_count, file_number);
             if (!ok) {
-                std::cerr << "Failed to read sorted file into dynamic array.\n";
+                std::cout << "Failed to read sorted file into dynamic array.\n";
                 continue;
             }
             std::cout << "\n\tOID\tArrival\tDuration\tTimeOut\n";
             int index = 1;
             for (int i = 0; i < dyn_count; ++i) {
                 Order &o = dyn_orders[i];
-                std::cout << "(" << index << ")"  << "\t" << o.oid << "\t" << o.arrival << "\t" << o.duration << "\t" << o.timeout << "\n";
+                std::cout << "(" << index << ")"  << " \t" << o.oid << "\t" << o.arrival << "\t" << o.duration << "\t" << o.timeout << "\n";
                 ++index;
             }
             std::cout << "\n";
@@ -560,7 +566,7 @@ int main() {
         }
         else if(choice==3) {
             if (!task2_done) {
-                std::cerr << "\n### Execute command 2 first! ###\n\n";
+                std::cout << "\n### Execute command 2 first! ###\n\n";
                 continue;
             }
             std::vector<Order> ordersVec;
@@ -572,7 +578,7 @@ int main() {
         }
         else if(choice==4) {
             if (!task2_done) {
-                std::cerr << "\n### Execute command 2 first! ###\n\n";
+                std::cout << "\n### Execute command 2 first! ###\n\n";
                 continue;
             }
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
