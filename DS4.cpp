@@ -223,7 +223,7 @@ public:
         for(size_t i=0;i<abort_list.size();i++){
             outfile << "[" << i+1 << "]\t" << abort_list[i].oid << "\t"
                     << abort_list[i].cid << "\t" << abort_list[i].delay << "\t"
-                    << abort_list[i].abort  << "\n";
+                    << abort_list[i].abort << "\n";
         }
     }
 
@@ -401,6 +401,10 @@ class order_system {
             AbortList a = {o.oid, num+1, clock.clk-o.arrival, clock.clk, o.seq};
             abort_list.push_back(a);
             int pos = abort_list.size() - 1;  // 新插入元素的位置
+            while (pos > 0 && abort_list[pos - 1].cid > abort_list[pos].cid) {
+                Swap(abort_list, pos - 1, pos); // 或 std::swap(timeout_list[pos-1], timeout_list[pos]);
+                --pos;
+            }
             while (pos > 0 && abort_list[pos - 1].seq > abort_list[pos].seq) {
                 Swap(abort_list, pos - 1, pos); // 或 std::swap(timeout_list[pos-1], timeout_list[pos]);
                 --pos;
@@ -435,8 +439,6 @@ class order_system {
                 if (o.timeout < clock.clk) {
                     SetAbort(o, num);
                 } else {
-                    o.seq = count;
-                    count++;
                     std::cout << o.seq << std::endl;
                     chefs[num].DoThisOrder(o, clock.clk);
                     queues[num].pop();
