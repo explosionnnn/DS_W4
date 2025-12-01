@@ -7,7 +7,6 @@
 #include <sys/stat.h>
 #include <algorithm>
 
-// ----------------- STRUCTS -----------------
 struct Order {
     int oid;
     int arrival;
@@ -50,7 +49,6 @@ struct ExecutingList {
     Order order;
 };
 
-// ----------------- QUEUE -----------------
 class Queue {
     private:
         Orders *head;
@@ -321,7 +319,12 @@ class order_system {
         }
 
 
-
+        bool IsNextOrderInvaild() {
+            if (!main_orders.empty() && (main_orders[0].duration <= 0) || main_orders[0].arrival + main_orders[0].duration > main_orders[0].timeout) {
+                return true;
+            }
+            return false;
+        }
 
         bool AllocateOrders() {
 
@@ -474,12 +477,16 @@ class order_system {
             if(N==1) prefix="one";
             else if(N==2) prefix="two";
             else prefix="any";
-
+            int ignore_invalid_orders = 0;
             size_t idx = 0;
             int total_orders = main_orders.size();
             SetZero();
             while (true) {
-
+                if (IsNextOrderInvaild()) {
+                    ignore_invalid_orders++;
+                    main_orders.erase(main_orders.begin());
+                    continue;
+                }
                 clock.Tick();
 
                 for (int i = 0; i < chef_num; i++) {
@@ -490,11 +497,22 @@ class order_system {
                         GetNextOrder(i);
                     }
                 }
-                if (!main_orders.empty() && main_orders[0].arrival == clock.clk) {
-                    AddOrder();
+                if (IsNextOrderInvaild()) {
+                    ignore_invalid_orders++;
+                    main_orders.erase(main_orders.begin());
+                    continue;
                 }
-
-
+                while (!main_orders.empty() && main_orders[0].arrival == clock.clk) {
+                    if (IsNextOrderInvaild()) {
+                        main_orders.erase(main_orders.begin());
+                        ignore_invalid_orders++;
+                        continue;
+                    }
+                    bool success = AllocateOrders();
+                    if (!success) {
+                        SetAbort();
+                    }
+                }
                 if (main_orders.empty() && AllQueuesEmpty() && AllChefsFree()) {
                     break;
                 }
@@ -507,7 +525,7 @@ class order_system {
             for(auto a:abort_list) total_delay+=a.delay;
             for(auto t:timeout_list) total_delay+=t.delay;
 
-            double failure_percentage = (abort_list.size()+timeout_list.size())*100.0/total_orders;
+            double failure_percentage = (abort_list.size()+timeout_list.size())*100.0/(total_orders - ignore_invalid_orders);
 
             IOHandler::WriteAbortListToFile(abort_list,file_number,prefix);
             IOHandler::WriteTimeoutListToFile(timeout_list,file_number,prefix);
@@ -680,4 +698,4 @@ int main() {
     MenuSystem menu;
     menu.Run();
     return 0;
-}
+}   
