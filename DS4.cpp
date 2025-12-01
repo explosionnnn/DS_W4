@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <chrono>
 #include <sys/stat.h>
+#include <algorithm>
 
 // ----------------- STRUCTS -----------------
 struct Order {
@@ -12,12 +13,14 @@ struct Order {
     int arrival;
     int duration;
     int timeout;
+    int seq;
 };
 
 struct Orders {
     Order order;
     Orders *next;
 };
+
 
 struct SortedList {
     int oid;
@@ -31,6 +34,7 @@ struct AbortList {
     int cid;
     int delay;
     int abort;
+    int seq;
 };
 
 struct TimeoutList {
@@ -38,6 +42,7 @@ struct TimeoutList {
     int cid;
     int delay;
     int departure;
+    int seq;
 };
 
 struct ExecutingList {
@@ -98,7 +103,7 @@ class Chef {
         int start_time; //訂單開始時間
         Order now;
     public:
-        Chef() { free_time = 0; now = {0, 0, 0, 0}; start_time = 0;}
+        Chef() { free_time = 0; now = {0, 0, 0, 0, 0}; start_time = 0;}
 
         bool IsFree(int current_time=0) {
             return now.oid == 0 || free_time <= current_time;
@@ -125,6 +130,7 @@ class Chef {
             now.timeout = o.timeout;
             free_time = clk + now.duration;
             start_time = clk;
+            now.seq = o.seq;
         }
 
         int GetFinishtime() {
@@ -196,9 +202,9 @@ public:
         std::vector<Order> tmp;
         int oid, arrival, duration, timeout;
         while(infile >> oid >> arrival >> duration >> timeout) {
-            if (duration > 0 && arrival + duration <= timeout) {
+            // if (duration > 0 && arrival + duration <= timeout) {
                 tmp.push_back({oid, arrival, duration, timeout});
-            }
+            // }
         }
         n = (int)tmp.size();
         if (n == 0) {
@@ -217,7 +223,7 @@ public:
         for(size_t i=0;i<abort_list.size();i++){
             outfile << "[" << i+1 << "]\t" << abort_list[i].oid << "\t"
                     << abort_list[i].cid << "\t" << abort_list[i].delay << "\t"
-                    << abort_list[i].abort << "\n";
+                    << abort_list[i].abort  << "\n";
         }
     }
 
@@ -278,6 +284,7 @@ class order_system {
         std::vector<Order> main_orders;
         int total_delay;
         int file_number;
+        int count;
 
     public:
         order_system(int num, int file_num) {
@@ -287,6 +294,7 @@ class order_system {
             queues = new Queue[chef_num];
             total_delay = 0;
             file_number = file_num;
+            count = 0;
         }
 
         ~order_system() { delete[] chefs; delete[] queues; }
@@ -324,6 +332,8 @@ class order_system {
 
             for (int i = 0; i < chef_num; i++) {
                 if (chefs[i].IsFree() && queues[i].IsEmpty()) {
+                    o.seq = count;
+                    count++;
                     chefs[i].DoThisOrder(o, clock.clk);
                     main_orders.erase(main_orders.begin());
                     return true;
@@ -336,6 +346,8 @@ class order_system {
                 }
             }
             if (bestidx != -1) {
+                o.seq = count;
+                count++;
                 queues[bestidx].push(o);
                 main_orders.erase(main_orders.begin());
                 return true;
@@ -352,11 +364,30 @@ class order_system {
             }
         }
 
+        void Swap(std::vector<TimeoutList> &list, int a, int b) {
+            TimeoutList temp = list[a];
+            list[a] = list[b];
+            list[b] = temp;
+        }
+
+        void Swap(std::vector<AbortList> &list, int a, int b) {
+            AbortList temp = list[a];
+            list[a] = list[b];
+            list[b] = temp;
+        }
+
         bool IsTimeout(const Order &o, int finish_time) {
             if (finish_time > o.timeout) {
                 return true;
             }
             return false;
+        }
+
+        int GetIndex(int n, std::vector<int> recoid) {
+            int i = 0;
+            while(true) {
+                if (recoid[i] == n) {return i;}
+            }
         }
 
         void SetAbort() { //第一種情況
@@ -367,8 +398,13 @@ class order_system {
 
         void SetAbort(const Order& o, int num) { //第二種情況
             //閒置時刻為結束時刻 == 現在時間
-            AbortList a = {o.oid, num+1, clock.clk-o.arrival, clock.clk};
+            AbortList a = {o.oid, num+1, clock.clk-o.arrival, clock.clk, o.seq};
             abort_list.push_back(a);
+            int pos = abort_list.size() - 1;  // 新插入元素的位置
+            while (pos > 0 && abort_list[pos - 1].seq > abort_list[pos].seq) {
+                Swap(abort_list, pos - 1, pos); // 或 std::swap(timeout_list[pos-1], timeout_list[pos]);
+                --pos;
+            }
             queues[num].pop();
         }
 
@@ -379,8 +415,14 @@ class order_system {
             if (finish_time == clock.clk) {
                 if (IsTimeout(o, finish_time)) {
                     int delay = start_time - o.arrival;
-                    TimeoutList t = {o.oid, num+1 , delay, finish_time};
+                    TimeoutList t = {o.oid, num+1 , delay, finish_time, o.seq};
                     timeout_list.push_back(t);
+
+                    int pos = timeout_list.size() - 1;  // 新插入元素的位置
+                    while (pos > 0 && timeout_list[pos - 1].seq > timeout_list[pos].seq) {
+                        Swap(timeout_list, pos - 1, pos); // 或 std::swap(timeout_list[pos-1], timeout_list[pos]);
+                        --pos;
+                    }
                 }
                 chefs[num].SetFree();
             }
@@ -393,6 +435,9 @@ class order_system {
                 if (o.timeout < clock.clk) {
                     SetAbort(o, num);
                 } else {
+                    o.seq = count;
+                    count++;
+                    std::cout << o.seq << std::endl;
                     chefs[num].DoThisOrder(o, clock.clk);
                     queues[num].pop();
                     break;
@@ -414,6 +459,11 @@ class order_system {
             return true;
         }
 
+        void SetZero() {
+            for (int i = 0; i < chef_num; i++) {
+                main_orders[i].seq = 0;
+            }
+        }
 
 
 
@@ -425,6 +475,7 @@ class order_system {
 
             size_t idx = 0;
             int total_orders = main_orders.size();
+            SetZero();
             while (true) {
 
                 clock.Tick();
@@ -445,9 +496,9 @@ class order_system {
                 if (main_orders.empty() && AllQueuesEmpty() && AllChefsFree()) {
                     break;
                 }
-
-
             }
+
+
 
             // 計算總延遲
             total_delay=0;
@@ -456,150 +507,175 @@ class order_system {
 
             double failure_percentage = (abort_list.size()+timeout_list.size())*100.0/total_orders;
 
-            IOHandler::WriteAbortListToFile(abort_list,401,prefix);
-            IOHandler::WriteTimeoutListToFile(timeout_list,401,prefix);
+            IOHandler::WriteAbortListToFile(abort_list,file_number,prefix);
+            IOHandler::WriteTimeoutListToFile(timeout_list,file_number,prefix);
             std::ofstream outfile(prefix + std::to_string(file_number) + ".txt", std::ios::app);
-            outfile << "\t[Total Delay]\n";
+            outfile << "[Total Delay]\n";
             outfile << total_delay << " min.\n";
             outfile << "[Failure Percentage]\n";
             outfile << std::fixed << std::setprecision(2) << failure_percentage << " %\n";
         }
 };
 
-// ----------------- MAIN -----------------
-int main() {
+class MenuSystem {
+private:
     Order* dyn_orders = nullptr;
     int dyn_count = 0;
     bool has_sorted_file = false;
     bool task2_done = false;
     int last_file_number = 0;
-    while(true) {
-        std::cout << "*** (^_^) Data Structure (^o^) ***\n";
-        std::cout << "** Simulate FIFO Queues by SQF ***\n";
-        std::cout << "* 0. Quit                        *\n";
-        std::cout << "* 1. Sort a file                 *\n";
-        std::cout << "* 2. Simulate one FIFO queue     *\n";
-        std::cout << "* 3. Simulate two queues by SQF  *\n";
-        std::cout << "* 4. Simulate some queues by SQF *\n";
-        std::cout << "**********************************\n";
-        std::cout << "Input a command(0, 1, 2, 3, 4): ";
-        int choice;
-        if (!(std::cin >> choice)) break;
-        if(choice==0) break;
+
+    void CommandSortFile() {
         std::string file_input;
         int file_number;
-        if(choice==1) {
-            std::cout << "\nInput a file number (e.g., 401, 402, 403, ...): ";
-            std::cin >> file_input;
-            try {
-                file_number = std::stoi(file_input);
-            }   catch (std::invalid_argument &e) {
-                std::cerr << "\n### input" << file_input << ".txt does not exist! ###\n\n";
-                continue;
-            }
-            last_file_number = file_number;
-            auto t0 = std::chrono::high_resolution_clock::now();
-            std::vector<Order> orders = IOHandler::ReadOrdersFromFile(file_number);
-            auto t1 = std::chrono::high_resolution_clock::now();
-            if (orders.empty()) {
-                std::cerr << "\n### input" << file_number << ".txt does not exist! ###\n\n";
-                continue;
-            }
-            std::cout << "\n\tOID\tArrival\tDuration\tTimeOut\n";
-            int index = 1;
-            for (auto &o : orders) {
-                std::cout << "(" << index << ")"  << "\t" << o.oid << "\t" << o.arrival << "\t" << o.duration << "\t" << o.timeout << "\n";
-                ++index;
-            }
-            auto t2 = std::chrono::high_resolution_clock::now();
-            IOHandler::ShellSort(orders);
-            auto t3 = std::chrono::high_resolution_clock::now();
-            IOHandler::WriteSortedListToFile(orders, file_number);
-            auto t4 = std::chrono::high_resolution_clock::now();
-            long long read_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-            long long sort_us = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
-            long long write_us = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
-            std::cout << "\nReading data: " << read_us << " us.\n\n";
-            std::cout << "Sorting data: " << sort_us << " us.\n\n";
-            std::cout << "Writing data: " << write_us << " us.\n\n";
-            has_sorted_file = true;
+        std::cout << "\nInput a file number (e.g., 401, 402, 403, ...): ";
+        std::cin >> file_input;
+        try {
+            file_number = std::stoi(file_input);
+        } catch (...) {
+            std::cout << "\n### input" << file_input << ".txt does not exist! ###\n\n";
+            return;
         }
-        else if(choice==2) {
-            std::cout << "\nInput a file number (e.g., 401, 402, 403, ...): ";
-            std::cin >> file_input;
-            try {
-                file_number = std::stoi(file_input);
-            }   catch (std::invalid_argument &e) {
-                std::cerr << "\n### sorted" << file_input << ".txt does not exist! ###\n\n";
-                continue;
-            }
-            std::string sorted_name = "sorted" + std::to_string(file_number) + ".txt";
-            if (!IOHandler::Exists(sorted_name)) {
-                std::cerr << "\n### sorted" << file_number << ".txt does not exist! ###\n\n";
-                continue;
-            }
-            if (dyn_orders) { delete[] dyn_orders; dyn_orders = nullptr; dyn_count = 0; task2_done = false; }
-            bool ok = IOHandler::ReadSortedToDynamic(dyn_orders, dyn_count, file_number);
-            if (!ok) {
-                std::cerr << "Failed to read sorted file into dynamic array.\n";
-                continue;
-            }
-            std::cout << "\n\tOID\tArrival\tDuration\tTimeOut\n";
-            int index = 1;
-            for (int i = 0; i < dyn_count; ++i) {
-                Order &o = dyn_orders[i];
-                std::cout << "(" << index << ")"  << "\t" << o.oid << "\t" << o.arrival << "\t" << o.duration << "\t" << o.timeout << "\n";
-                ++index;
-            }
-            std::cout << "\n";
-            task2_done = true;
-            std::vector<Order> ordersVec;
-            for (int i = 0; i < dyn_count; ++i) ordersVec.push_back(dyn_orders[i]);
-            order_system os(1, file_number);
-            os.LoadOrders(ordersVec);
-            os.SimulateQueues(1);
+        last_file_number = file_number;
+        auto t0 = std::chrono::high_resolution_clock::now();
+        std::vector<Order> orders = IOHandler::ReadOrdersFromFile(file_number);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        if (orders.empty()) {
+            std::cout << "\n### input" << file_number << ".txt does not exist! ###\n\n";
+            return;
         }
-        else if(choice==3) {
-            if (!task2_done) {
-                std::cerr << "\n### Execute command 2 first! ###\n\n";
-                continue;
-            }
-            std::vector<Order> ordersVec;
-            for (int i = 0; i < dyn_count; ++i) ordersVec.push_back(dyn_orders[i]);
-            order_system os(2, last_file_number);
-            os.LoadOrders(ordersVec);
-            os.SimulateQueues(2);
-            std::cout << "\n";
+
+        std::cout << "\n\tOID\tArrival\tDuration\tTimeOut\n";
+        int index = 1;
+        for (auto &o : orders) {
+            std::cout << "(" << index << ")"  << " \t" << o.oid << "\t" << o.arrival
+                      << "\t" << o.duration << "\t" << o.timeout << "\n";
+            ++index;
         }
-        else if(choice==4) {
-            if (!task2_done) {
-                std::cerr << "\n### Execute command 2 first! ###\n\n";
-                continue;
-            }
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-            std::string s;
-            int N = 0;
-            while (true) {
-                std::cout << "\nInput the number of queues: ";
-                std::getline(std::cin, s);
-                try {
-                    N = std::stoi(s);
-                    if (N > 0) break;
-                } catch (std::invalid_argument &e) {
-                    continue;
-                }
-            }
-            std::vector<Order> ordersVec;
-            for (int i = 0; i < dyn_count; ++i) ordersVec.push_back(dyn_orders[i]);
-            order_system os(N, last_file_number);
-            os.LoadOrders(ordersVec);
-            os.SimulateQueues(N);
-            std::cout << "\n";
-        }
-        else {
-            std::cout << "\nCommand does not exist!\n\n";
-        }
+
+        auto t2 = std::chrono::high_resolution_clock::now();
+        IOHandler::ShellSort(orders);
+        auto t3 = std::chrono::high_resolution_clock::now();
+        IOHandler::WriteSortedListToFile(orders, file_number);
+        auto t4 = std::chrono::high_resolution_clock::now();
+
+        std::cout << "\nReading data: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() << " us.\n\n";
+        std::cout << "Sorting data: " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << " us.\n\n";
+        std::cout << "Writing data: " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us.\n";
+
+        has_sorted_file = true;
     }
-    if (dyn_orders) delete[] dyn_orders;
+
+    void CommandSimulateOneQueue() {
+        std::string file_input;
+        int file_number;
+        std::cout << "\nInput a file number (e.g., 401, 402, 403, ...): ";
+        std::cin >> file_input;
+        try {
+            file_number = std::stoi(file_input);
+        } catch (...) {
+            std::cout << "\n### sorted" << file_input << ".txt does not exist! ###\n";
+            return;
+        }
+
+        std::string sorted_name = "sorted" + std::to_string(file_number) + ".txt";
+        if (!IOHandler::Exists(sorted_name)) {
+            std::cout << "\n### sorted" << file_number << ".txt does not exist! ###\n";
+            return;
+        }
+
+        if (dyn_orders) { delete[] dyn_orders; dyn_orders = nullptr; dyn_count = 0; task2_done = false; }
+        if (!IOHandler::ReadSortedToDynamic(dyn_orders, dyn_count, file_number)) {
+            std::cout << "Failed to read sorted file into dynamic array.\n";
+            return;
+        }
+
+        std::cout << "\n\tOID\tArrival\tDuration\tTimeOut\n";
+        for (int i = 0; i < dyn_count; ++i) {
+            Order &o = dyn_orders[i];
+            std::cout << "(" << i+1 << ")" << " \t" << o.oid << "\t" << o.arrival
+                      << "\t" << o.duration << "\t" << o.timeout << "\n";
+        }
+        task2_done = true;
+
+        std::vector<Order> ordersVec(dyn_orders, dyn_orders + dyn_count);
+        order_system os(1, file_number);
+        os.LoadOrders(ordersVec);
+        os.SimulateQueues(1);
+    }
+
+    void CommandSimulateTwoQueues() {
+        if (!task2_done) {
+            std::cout << "\n### Execute command 2 first! ###\n";
+            return;
+        }
+        std::vector<Order> ordersVec(dyn_orders, dyn_orders + dyn_count);
+        order_system os(2, last_file_number);
+        os.LoadOrders(ordersVec);
+        os.SimulateQueues(2);
+    }
+
+    void CommandSimulateNQueues() {
+        if (!task2_done) {
+            std::cout << "\n### Execute command 2 first! ###\n";
+            return;
+        }
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::string s;
+        int N = 0;
+        while (true) {
+            std::cout << "\nInput the number of queues: ";
+            std::getline(std::cin, s);
+            try {
+                N = std::stoi(s);
+                if (N > 0) break;
+            } catch (...) { continue; }
+        }
+        std::vector<Order> ordersVec(dyn_orders, dyn_orders + dyn_count);
+        order_system os(N, last_file_number);
+        os.LoadOrders(ordersVec);
+        os.SimulateQueues(N);
+    }
+
+public:
+    void Run() {
+        while (true) {
+            std::cout << "*** (^_^) Data Structure (^o^) ***\n";
+            std::cout << "** Simulate FIFO Queues by SQF ***\n";
+            std::cout << "* 0. Quit                        *\n";
+            std::cout << "* 1. Sort a file                 *\n";
+            std::cout << "* 2. Simulate one FIFO queue     *\n";
+            std::cout << "* 3. Simulate two queues by SQF  *\n";
+            std::cout << "* 4. Simulate some queues by SQF *\n";
+            std::cout << "**********************************\n";
+            std::cout << "Input a command(0, 1, 2, 3, 4): ";
+
+            std::string choice_input;
+            int choice;
+            try {
+                std::cin >> choice_input;
+                choice = std::stoi(choice_input);
+            } catch (...) {
+                break;
+            }
+            if (choice == 0) break;
+
+            switch (choice) {
+                case 1: CommandSortFile(); break;
+                case 2: CommandSimulateOneQueue(); break;
+                case 3: CommandSimulateTwoQueues(); break;
+                case 4: CommandSimulateNQueues(); break;
+                default: std::cout << "\nCommand does not exist!\n\n"; break;
+            }
+            std::cout << "\n";
+        }
+
+        if (dyn_orders) delete[] dyn_orders;
+    }
+};
+
+int main() {
+    MenuSystem menu;
+    menu.Run();
     return 0;
 }

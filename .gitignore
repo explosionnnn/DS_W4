@@ -1,0 +1,7 @@
+.vscode/
+.vscode
+*.txt
+*.out
+*.json
+*.txt:Zone.Identifier
+DS4
