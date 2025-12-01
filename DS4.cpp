@@ -413,10 +413,16 @@ class order_system {
             else if(N==2) prefix="two";
             else prefix="any";
             size_t idx = 0;
+            int ignore_list = 0;
             int total_orders = main_orders.size();
             while (true) {
                 if (main_orders.empty() && AllQueuesEmpty() && AllChefsFree()) {
                     break;
+                }
+                if (IsNextOrderIvalid()) {
+                    main_orders.erase(main_orders.begin());
+                    ignore_list++;
+                    continue;
                 }
                 // next event = min( next arrival, next chef finish time (> clock) )
                 int next_time = -1;
@@ -439,6 +445,11 @@ class order_system {
                 }
                 /* step 2: new order -> （arrival == clock）*/
                 while (!main_orders.empty() && main_orders[0].arrival == clock.clk) {
+                    if (IsNextOrderIvalid()) {
+                        main_orders.erase(main_orders.begin());
+                        ignore_list++;
+                        continue;
+                    }
                     bool success = AllocateOrders();
                     if (!success) {
                         SetAbort();
@@ -450,7 +461,7 @@ class order_system {
             for(auto a:abort_list) total_delay+=a.delay;
             for(auto t:timeout_list) total_delay+=t.delay;
 
-            double failure_percentage = (abort_list.size()+timeout_list.size())*100.0/total_orders;
+            double failure_percentage = (abort_list.size()+timeout_list.size())*100.0/(total_orders-ignore_list);
 
             IOHandler::WriteAbortListToFile(abort_list,file_number,prefix);
             IOHandler::WriteTimeoutListToFile(timeout_list,file_number,prefix);
