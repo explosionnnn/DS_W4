@@ -442,7 +442,7 @@ class order_system {
                 if (o.timeout < clock.clk) {
                     SetAbort(o, num);
                 } else {
-                    // std::cout << o.seq << std::endl;
+                    std::cout << o.seq << std::endl;
                     chefs[num].DoThisOrder(o, clock.clk);
                     queues[num].pop();
                     break;
@@ -469,6 +469,8 @@ class order_system {
                 main_orders[i].seq = 0;
             }
         }
+
+
 
         void SimulateQueues(int N) {
             std::string prefix;
