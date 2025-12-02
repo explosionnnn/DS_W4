@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <chrono>
 #include <sys/stat.h>
+#include <algorithm>
 
 struct Order {
     int oid;
@@ -270,6 +271,8 @@ class order_system {
         Clock clock;
         std::vector<AbortList> abort_list;
         std::vector<TimeoutList> timeout_list;
+        std::vector<AbortList> abort_list_this_pass;
+        std::vector<TimeoutList> timeout_list_this_pass;
         std::vector<Order> main_orders;
         int total_delay;
         int file_number;
@@ -357,16 +360,15 @@ class order_system {
             return false;
         }
 
-        void SetAbort() { //第一種情況
+        void SetAbort() { //case 1
             AbortList a = {main_orders[0].oid, 0, 0, main_orders[0].arrival};
             abort_list.push_back(a);
             main_orders.erase(main_orders.begin());
         }
 
-        void SetAbort(const Order& o, int num) { //第二種情況
-            //閒置時刻為結束時刻 == 現在時間
+        void SetAbort(const Order& o, int num) { //case 2
             AbortList a = {o.oid, num+1, clock.clk-o.arrival, clock.clk};
-            abort_list.push_back(a);
+            abort_list_this_pass.push_back(a);
             queues[num].pop();
         }
 
@@ -381,7 +383,7 @@ class order_system {
                     chefs[num].DoThisOrder(o, clock.clk);
                     int delay = clock.clk - o.arrival;
                     TimeoutList t = {o.oid, num+1 , delay, clock.clk + o.duration};
-                    timeout_list.push_back(t);
+                    timeout_list_this_pass.push_back(t);
                     queues[num].pop();
                     continue;
                 }
@@ -405,6 +407,26 @@ class order_system {
                 if (!chefs[i].IsFree(clock.clk)) return false;
             }
             return true;
+        }
+
+        void FlushPassIfAny() {
+            if (abort_list_this_pass.empty() && timeout_list_this_pass.empty()) return;
+            // Sort per-pass to match sample logic
+            std::stable_sort(abort_list_this_pass.begin(), abort_list_this_pass.end(),
+                [](const AbortList& a, const AbortList& b) {
+                    return a.cid < b.cid;
+                });
+            std::stable_sort(timeout_list_this_pass.begin(), timeout_list_this_pass.end(),
+                [](const TimeoutList& a, const TimeoutList& b) {
+                    return a.cid < b.cid;
+                });
+
+            // Append to formal lists (preserving cross-pass order)
+            abort_list.insert(abort_list.end(), abort_list_this_pass.begin(), abort_list_this_pass.end());
+            timeout_list.insert(timeout_list.end(), timeout_list_this_pass.begin(), timeout_list_this_pass.end());
+
+            abort_list_this_pass.clear();
+            timeout_list_this_pass.clear();
         }
 
         void SimulateQueues(int N) {
@@ -443,6 +465,10 @@ class order_system {
                 for (int i = 0; i < chef_num; ++i) {
                     ChefProcessOrders(i);
                 }
+                bool has_arrival_now = (!main_orders.empty() && main_orders[0].arrival == clock.clk);
+                if (has_arrival_now || main_orders.empty()) {
+                    FlushPassIfAny();
+                }
                 /* step 2: new order -> （arrival == clock）*/
                 while (!main_orders.empty() && main_orders[0].arrival == clock.clk) {
                     if (IsNextOrderIvalid()) {
@@ -456,6 +482,7 @@ class order_system {
                     }
                 }
             }
+            FlushPassIfAny();
             // 計算總延遲
             total_delay=0;
             for(auto a:abort_list) total_delay+=a.delay;
@@ -489,14 +516,14 @@ class MenuSystem {
             try {
                 file_number = std::stoi(file_input);
             } catch (...) {
-                std::cout << "\n### input" << file_input << ".txt does not exist! ###\n\n";
+                std::cout << "\n### input" << file_input << ".txt does not exist! ###\n";
                 return;
             }
             auto t0 = std::chrono::high_resolution_clock::now();
             std::vector<Order> orders = IOHandler::ReadOrdersFromFile(file_number);
             auto t1 = std::chrono::high_resolution_clock::now();
             if (orders.empty()) {
-                std::cout << "\n### input" << file_number << ".txt does not exist! ###\n\n";
+                std::cout << "\n### input" << file_number << ".txt does not exist! ###\n";
                 return;
             }
 
@@ -620,7 +647,7 @@ class MenuSystem {
                     case 2: CommandSimulateOneQueue(); break;
                     case 3: CommandSimulateTwoQueues(); break;
                     case 4: CommandSimulateNQueues(); break;
-                    default: std::cout << "\nCommand does not exist!\n\n"; break;
+                    default: std::cout << "\nCommand does not exist!\n"; break;
                 }
                 std::cout << "\n";
             }
