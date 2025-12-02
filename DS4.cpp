@@ -19,13 +19,6 @@ struct Orders {
     Orders *next;
 };
 
-struct SortedList {
-    int oid;
-    int arrival;
-    int duration;
-    int timeout;
-};
-
 struct AbortList {
     int oid;
     int cid;
@@ -38,11 +31,6 @@ struct TimeoutList {
     int cid;
     int delay;
     int departure;
-};
-
-struct ExecutingList {
-    int which_chef;
-    Order order;
 };
 
 class Queue {
@@ -92,27 +80,14 @@ class Queue {
 
 class Chef {
     private:
-        int free_time; //訂單結束時間
-        int start_time; //訂單開始時間
+        int free_time; 
+        int start_time; 
         Order now;
     public:
         Chef() { free_time = 0; now = {0, 0, 0, 0}; start_time = 0;}
 
         bool IsFree(int current_time) {
-        // 如果目前沒有任務 (now.oid == 0) 或者已經到達/超過空閒時間
          return now.oid == 0 || free_time <= current_time;
-        }
-
-        void ProcessOrder(Order o, int &delay, bool &isTimeout) {
-            int start_time = std::max(free_time, o.arrival);
-            delay = start_time - o.arrival;
-            if (start_time + o.duration > o.timeout) {
-                isTimeout = true;
-            } else {
-                isTimeout = false;
-            }
-            free_time = start_time + o.duration;
-            now = o;
         }
 
         int GetFreeTime() { return free_time; }
@@ -126,26 +101,6 @@ class Chef {
             start_time = clk;
         }
 
-        int GetFinishtime() {
-            return free_time;
-        }
-
-        int GetTimeOut() {
-            return now.timeout;
-        }
-
-        int GetStartTime() {
-            return start_time;
-        }
-
-        int FreeTime() {
-            return free_time;
-        }
-
-        Order GetOrder() {
-            return now;
-        }
-
         void SetFree() { free_time = 0; now = {0, 0, 0, 0}; start_time = 0;}
 };
 
@@ -153,7 +108,6 @@ class Clock {
 public:
     int clk;
     Clock() { clk=0; }
-    void Tick() { clk++; }
 };
 
 class IOHandler {
@@ -161,18 +115,6 @@ class IOHandler {
         static std::vector<Order> ReadOrdersFromFile(int file_number) {
             std::vector<Order> orders;
             std::ifstream infile("input" + std::to_string(file_number) + ".txt");
-            std::string header;
-            std::getline(infile, header); // skip header
-            int oid, arrival, duration, timeout;
-            while(infile >> oid >> arrival >> duration >> timeout) {
-                orders.push_back({oid, arrival, duration, timeout});
-            }
-            return orders;
-        }
-
-        static std::vector<Order> ReadSortedOrdersFromFile(int file_number) {
-            std::vector<Order> orders;
-            std::ifstream infile("sorted" + std::to_string(file_number) + ".txt");
             std::string header;
             std::getline(infile, header); // skip header
             int oid, arrival, duration, timeout;
@@ -193,9 +135,8 @@ class IOHandler {
             std::vector<Order> tmp;
             int oid, arrival, duration, timeout;
             while(infile >> oid >> arrival >> duration >> timeout) {
-                // if (duration > 0 && arrival + duration <= timeout) {
-                    tmp.push_back({oid, arrival, duration, timeout});
-                // }
+                tmp.push_back({oid, arrival, duration, timeout});
+                
             }
             n = (int)tmp.size();
             if (n == 0) {
@@ -265,7 +206,6 @@ class IOHandler {
 class order_system {
     private:
         int chef_num;
-        int which_chef;
         Chef* chefs;
         Queue* queues;
         Clock clock;
@@ -279,7 +219,6 @@ class order_system {
     public:
         order_system(int num, int file_num) {
             chef_num = num;
-            which_chef = 0;
             chefs = new Chef[chef_num];
             queues = new Queue[chef_num];
             total_delay = 0;
@@ -300,23 +239,6 @@ class order_system {
             return false;
         }
 
-        void ShellSort(int n, std::vector<Order> target) {
-            Order temp;
-            for (int gap = n/2; gap > 0; gap /=2) {
-                for (int i = gap; i < n; i++) {
-
-                    temp.oid = target[i].oid;
-                    int j = i;
-
-                    while (j-gap >= 0 && target[j-gap].oid > temp.oid) {
-                        target[j] = target[j-gap];
-                        j -= gap;
-                    }
-                    target[j] = temp;
-                }
-            }
-        }
-
         bool AllocateOrders() {
             if (main_orders.empty()) return false;
             int bestlen = 10000;
@@ -330,7 +252,7 @@ class order_system {
                     return true;
                 }
             }
-            for (int i = 0; i < chef_num; i++) { //bug??
+            for (int i = 0; i < chef_num; i++) {
                 if (queues[i].GetLength() < bestlen && !queues[i].QueueFull()) {
                     bestidx = i;
                     bestlen = queues[i].GetLength();
@@ -411,7 +333,7 @@ class order_system {
 
         void FlushPassIfAny() {
             if (abort_list_this_pass.empty() && timeout_list_this_pass.empty()) return;
-            // Sort per-pass to match sample logic
+            // Sort per-pass
             std::stable_sort(abort_list_this_pass.begin(), abort_list_this_pass.end(),
                 [](const AbortList& a, const AbortList& b) {
                     return a.cid < b.cid;
@@ -421,7 +343,7 @@ class order_system {
                     return a.cid < b.cid;
                 });
 
-            // Append to formal lists (preserving cross-pass order)
+            // Append to formal lists
             abort_list.insert(abort_list.end(), abort_list_this_pass.begin(), abort_list_this_pass.end());
             timeout_list.insert(timeout_list.end(), timeout_list_this_pass.begin(), timeout_list_this_pass.end());
 
@@ -434,7 +356,6 @@ class order_system {
             if(N==1) prefix="one";
             else if(N==2) prefix="two";
             else prefix="any";
-            size_t idx = 0;
             int ignore_list = 0;
             int total_orders = main_orders.size();
             while (true) {
@@ -483,13 +404,10 @@ class order_system {
                 }
             }
             FlushPassIfAny();
-            // 計算總延遲
             total_delay=0;
             for(auto a:abort_list) total_delay+=a.delay;
             for(auto t:timeout_list) total_delay+=t.delay;
-
             double failure_percentage = (abort_list.size()+timeout_list.size())*100.0/(total_orders-ignore_list);
-
             IOHandler::WriteAbortListToFile(abort_list,file_number,prefix);
             IOHandler::WriteTimeoutListToFile(timeout_list,file_number,prefix);
             std::ofstream outfile(prefix + std::to_string(file_number) + ".txt", std::ios::app);
@@ -504,7 +422,6 @@ class MenuSystem {
     private:
         Order* dyn_orders = nullptr;
         int dyn_count = 0;
-        bool has_sorted_file = false;
         bool task2_done = false;
         int current_file_number = -1;
 
@@ -544,8 +461,6 @@ class MenuSystem {
             std::cout << "\nReading data: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() << " us.\n\n";
             std::cout << "Sorting data: " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << " us.\n\n";
             std::cout << "Writing data: " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " us.\n";
-
-            has_sorted_file = true;
         }
 
         void CommandSimulateOneQueue() {
